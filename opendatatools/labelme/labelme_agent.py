@@ -1,3 +1,4 @@
+
 # encoding = 'utf-8'
 from cmath import nan
 
@@ -8,24 +9,15 @@ from bs4 import BeautifulSoup as bs
 import json
 import os
 
-top_items_map = {
-    '中国宏观' : "402273",
-    '行业经济' : "771263",
-    '国际宏观' : "1138921",
-    '特色数据' : "632815",
-    '市场行情' : 'RRP1349982',
-    '公司数据' : 'RRP1',
-}
-
 class LabelmeAgent(RestAgent):
 
     def __init__(self, base_url):
         RestAgent.__init__(self)
-        self.base_url = base_url
+        self.base_url = base_url.strip("/")
+        self.page_size = 30 # labelme默认30，和浏览器正常访问保持一致，不容易被筛选出来
         self.token = ""
 
     def login(self, username, password):
-        # http://122.112.241.144:9080/label_studio/api/dm/tasks?page=16&page_size=30&view=97&interaction=scroll&project=16
         url = self.base_url + "/label_studio/user/login/"
 
         res =  self.session.get(url)
@@ -47,7 +39,8 @@ class LabelmeAgent(RestAgent):
         return False, "未知失败"
         
     def list_projects(self):
-        url = self.base_url + "/label_studio/api/projects?page=1&page_size=30"
+        # TODO：目前只获取第一页，未来可以根据分页进行循环获取，加page/page_size主要还是模仿浏览器访问
+        url = self.base_url + "/label_studio/api/projects?page=%d&page_size=%d" % (1, self.page_size)
         res =  self.session.get(url)
         if res.status_code != 200:
             print("获取项目失败：" + res.text)
@@ -63,9 +56,45 @@ class LabelmeAgent(RestAgent):
             return None
         else:
             return pd.DataFrame(res.json())
+                
+    def list_images(self, project_id, view_id, page_end=0):
+        # 加page/page_size主要还是模仿浏览器访问
+        url = self.base_url + "/label_studio/api/dm/tasks?page=%d&page_size=%d&view=%d&project=%d" % (1, self.page_size, view_id, project_id)
+        res =  self.session.get(url)
+        if res.status_code != 200:
+            print("获取视图失败：" + res.text)
+            return None
+        
+        data = res.json()
+        result = pd.DataFrame(data['tasks'])
+
+        # 没有指定page_end，则加载所有图片元信息
+        if page_end == 0:
+            page_end = (data['total'] + 30) / 30
+
+        # 从第2页开始下载，interaction=scroll也是为了模仿浏览器访问
+        for page in range(2, page_end+1):
+            url = self.base_url + "/label_studio/api/dm/tasks?page=%d&page_size=%d&view=%d&interaction=scroll&project=%d" % (page, self.page_size, view_id, project_id)
+            res =  self.session.get(url)
+            data = res.json()
+            result = result.append(data['tasks'])
+        
+        return result
+    
+    def download_images(self, result, download_dir):
+        result['download'] = 0
+        dcol = list(result.columns).index('download')
+
+        for i in range(len(result)):
+            img_url = result.iloc[i]['data']['image']
+            # TODO：加入随机间隔，模拟人下载
+            f, s = self._download_file(img_url, download_dir)
+            result.iloc[i, dcol] = 1
+
+        return result
 
     def _download_file(self, url, destfolder):
-        filename=url.replace(self.base_url + '/', '')
+        filename=url.replace(self.base_url, '').strip('/')
         fileuri = os.path.join(destfolder, filename)
 
         print("downloading %s to %s" % (url, fileuri))
@@ -83,37 +112,3 @@ class LabelmeAgent(RestAgent):
                     if chunk:
                         f.write(chunk)
         return fileuri, True
-                
-    def list_images(self, project_id, view_id, page_end=0):
-        page_size = 30
-        url = self.base_url + "/label_studio/api/dm/tasks?page=%d&page_size=%d&view=%d&project=%d" % (1, page_size, view_id, project_id)
-        res =  self.session.get(url)
-        if res.status_code != 200:
-            print("获取视图失败：" + res.text)
-            return None
-        
-        data = res.json()
-        result = pd.DataFrame(data['tasks'])
-
-        if page_end == 0:
-            page_end = (data['total'] + 30) / 30
-
-        for page in range(2, page_end+1):
-            url = self.base_url + "/label_studio/api/dm/tasks?page=%d&page_size=%d&view=%d&interaction=scroll&project=%d" % (page, page_size, view_id, project_id)
-            res =  self.session.get(url)
-            data = res.json()
-            result = result.append(data['tasks'])
-        
-        return result
-    
-    def download_images(self, result, download_dir):
-
-        result['download'] = 0
-        dcol = list(result.columns).index('download')
-
-        for i in range(len(result)):
-            img_url = result.iloc[i]['data']['image']
-            f, s = self._download_file(img_url, download_dir)
-            result.iloc[i, dcol] = 1
-
-        return result
