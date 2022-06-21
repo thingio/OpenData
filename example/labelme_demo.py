@@ -12,7 +12,7 @@ if __name__ == '__main__':
     # 项目有多个视图，选择一个视图view_id
     print(agent.list_views(project_id=16))
 
-    # 指定project_id/view_id，page_size可选
+    # 指定project_id/view_id；可选参数page_end，应对接口对数据进行分页了，填0或者不填会下载所有数据
     df = agent.list_images(project_id=16, view_id=97, page_end=3)
     print(df)
 
