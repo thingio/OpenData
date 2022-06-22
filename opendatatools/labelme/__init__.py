@@ -1,1 +1,0 @@
-from .labelme_agent import *

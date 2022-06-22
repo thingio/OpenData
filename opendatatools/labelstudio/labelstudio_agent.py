@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup as bs
 import json
 import os
 
-class LabelmeAgent(RestAgent):
+class LabelStudioAgent(RestAgent):
 
     def __init__(self, base_url):
         RestAgent.__init__(self)
@@ -62,23 +62,24 @@ class LabelmeAgent(RestAgent):
         url = self.base_url + "/label_studio/api/dm/tasks?page=%d&page_size=%d&view=%d&project=%d" % (1, self.page_size, view_id, project_id)
         res =  self.session.get(url)
         if res.status_code != 200:
-            print("获取视图失败：" + res.text)
+            print("获取图像失败：" + res.text)
             return None
         
         data = res.json()
         result = pd.DataFrame(data['tasks'])
+        print("获取page[1]图像列表成功")
 
         # 没有指定page_end，则加载所有图片元信息
         if page_end == 0:
-            page_end = (data['total'] + 30) / 30
+            page_end = int( (data['total'] + 30) / 30 )
 
         # 从第2页开始下载，interaction=scroll也是为了模仿浏览器访问
         for page in range(2, page_end+1):
             url = self.base_url + "/label_studio/api/dm/tasks?page=%d&page_size=%d&view=%d&interaction=scroll&project=%d" % (page, self.page_size, view_id, project_id)
             res =  self.session.get(url)
             data = res.json()
-            result = result.append(data['tasks'])
-        
+            result = pd.concat([pd.DataFrame(data['tasks']), result])
+            print("获取page[%d]图像列表成功" % page)
         return result
     
     def download_images(self, result, download_dir):
